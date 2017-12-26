@@ -12,9 +12,21 @@ class Redukt<T>(state: T, debug: Boolean = false) {
         private set
     val reducers = mutableSetOf<Reducer<T>>()
     val middlewares = mutableSetOf<Middleware<T>>()
-    val listeners = mutableSetOf<StateListener<T>>()
+    private val listeners = mutableSetOf<StateListener<T>>()
     val debug = debug
     private val dispatcher = Dispatcher { reduce(it) }
+
+    fun addListener(listener: StateListener<T>) {
+        synchronized(listeners) {
+            listeners.add(listener)
+        }
+    }
+
+    fun removeListener(listener: StateListener<T>) {
+        synchronized(listeners) {
+            listeners.remove(listener)
+        }
+    }
 
     init {
         if (debug) {
@@ -40,14 +52,14 @@ class Redukt<T>(state: T, debug: Boolean = false) {
 
     private fun reduce(action: Action<*>) {
         val elapsed = measureTimeMillis {
-            val listeners = listeners.toSet() //to avoid concurrent modification exception
-            val middlewares = middlewares.toSet()
             val oldState = state
             var tempState = state
             middlewares.parallelFor { it.before(tempState, action) }
             reducers.forEach { tempState = it.reduce(tempState, action) }
             state = tempState
-            listeners.parallelFor { notifyListeners(it, oldState) }
+            synchronized(listeners) {
+                listeners.parallelFor { notifyListeners(it, oldState) }
+            }
             middlewares.parallelFor { it.after(tempState, action) }
         }
         if (debug) {
